@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interface SQL - Base de données étudiants</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎓 Interface SQL Étudiants</h1>
+            <p>Explorez et manipulez la base de données avec des requêtes SQL</p>
+            <div id="connectionStatus" class="connection-status"></div>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <h3>📊 Tables disponibles</h3>
+                <ul class="table-list" id="tableList">
+                    <li>Chargement...</li>
+                </ul>
+            </div> 
+
+            <div class="workspace">
+                <div class="query-section">
+                    <h3>🔍 Éditeur de requêtes SQL</h3>
+                    <textarea class="query-input" id="sqlQuery" placeholder="Tapez votre requête SQL ici..."></textarea>
+                    
+                    <div class="button-group">
+                        <button class="btn btn-primary" onclick="executeQuery()">▶️ Exécuter la requête</button>
+                        <button class="btn btn-secondary" onclick="clearQuery()">🗑️ Effacer</button>
+                        <button class="btn btn-secondary" onclick="formatQuery()">✨ Formater</button>
+                        <button class="btn btn-danger" onclick="showHelp()">❓ Aide SQL</button>
+                    </div>
+                </div>
+
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Exécution de la requête...</p>
+                </div>
+
+                <div class="results-section">
+                    <div class="results-header">
+                        <h3>📋 Résultat </h3>
+                        <div class="result-info" id="resultInfo"></div>
+                    </div>
+                    <div class="results-container" id="resultsContainer">
+                        <p style="padding: 20px; text-align: center; color: #7f8c8d;">
+                            Aucune requête exécutée. Tapez une requête SQL et cliquez sur "Exécuter".
+                        </p>
+                    </div>
+                </div>
+
+                <div id="structureSection" class="structure-section" >
+                    <div class="structure-header">
+                        <h3>📋 Structure </h3>
+                        <div class="structure-info" id="structureInfo"></div>
+                    </div>
+                     <div class="structure-container" id="structureContainer">
+                        <p style="padding: 20px; text-align: center; color: #7f8c8d;">
+                            Aucune information".
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration de l'API
+        const API_BASE_URL = 'http://localhost/SQLTraining'; // Remplacez par votre URL
+        const API_EXECUTE_URL = API_BASE_URL + '/api.php';
+        const API_TABLE_INFO_URL = API_BASE_URL + '/table_info.php';
+
+        // Variables globales
+        let availableTables = [];
+
+        // Fonction pour afficher le statut de connexion
+        function updateConnectionStatus(connected, message = '') {
+            const statusElement = document.getElementById('connectionStatus');
+            if (connected) {
+                statusElement.className = 'connection-status connected';
+                statusElement.innerHTML = '✅ Connecté à la base de données MySQL';
+            } else {
+                statusElement.className = 'connection-status disconnected';
+                statusElement.innerHTML = '❌ Erreur de connexion: ' + message;
+            }
+        }
+
+        // Fonction pour faire une requête à l'API
+        async function apiRequest(url, data = null) {
+            try {
+                const options = {
+                    method: data ? 'POST' : 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                };
+
+                if (data) {
+                    options.body = JSON.stringify(data);
+                }
+
+                const response = await fetch(url, options);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    throw new Error(result.message);
+                }
+                
+                return result;
+            } catch (error) {
+                console.error('Erreur API:', error);
+                throw error;
+            }
+        }
+
+        // Charger la liste des tables
+        async function loadTables() {
+            try {
+                const result = await apiRequest(API_TABLE_INFO_URL + '?action=list_tables');
+                availableTables = result.data;
+                
+                const tableList = document.getElementById('tableList');
+                tableList.innerHTML = '';
+                
+                availableTables.forEach(tableName => {
+                    const li = document.createElement('li');
+                    li.className = 'table-item';
+                    li.innerHTML = `📊 ${tableName}`;
+                    li.onclick = () => showTableStructure(tableName);
+                    tableList.appendChild(li);
+                });
+                
+                updateConnectionStatus(true);
+            } catch (error) {
+                updateConnectionStatus(false, error.message);
+                document.getElementById('tableList').innerHTML = 
+                    '<li style="color: #e74c3c;">Erreur de connexion</li>';
+            }
+            document.getElementById('structureSection').classList.add('masque');
+        }
+
+        // Afficher la structure d'une table
+        async function showTableStructure(tableName) {
+            try {
+                // Réinitialiser l'état actif
+                document.querySelectorAll('.table-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                
+                // Marquer comme actif
+                event.target.classList.add('active');
+                
+                const result = await apiRequest(API_TABLE_INFO_URL + `?action=table_structure&table=${tableName}`);
+                const data = result.data;
+                
+                if (data.samples && data.samples.length > 0) {
+                    displayResults(data.samples, `Aperçu de la table "${tableName}" (5 premiers enregistrements)`);
+                } else {
+                    displayResults([], `Table "${tableName}" est vide`);
+                }
+
+                if (data.structure && data.structure.length > 0) {
+                    displayStructure(data.structure, "");
+                } else {
+                    displayStructure([], `Structure de la table "${tableName}" non trouvée`);
+                }
+
+            } catch (error) {
+                displayError('Erreur lors du chargement de la table: ' + error.message);
+            }
+        }
+
+        // Insérer un exemple de requête
+        function insertExample(query) {
+            document.getElementById('sqlQuery').value = query;
+        }
+
+        // Exécuter une requête SQL
+        async function executeQuery() {
+            document.getElementById('structureSection').classList.remove('visible');
+            document.getElementById('structureSection').classList.add('masque');
+            const query = document.getElementById('sqlQuery').value.trim();
+            if (!query) {
+                alert('Veuillez saisir une requête SQL');
+                return;
+            }
+
+            showLoading(true);
+            
+            try {
+                const result = await apiRequest(API_EXECUTE_URL, { query: query });
+                
+                if (result.data && Array.isArray(result.data)) {
+                    displayResults(result.data, result.message);
+                } else {
+                    displaySuccess(result.message);
+                }
+                
+            } catch (error) {
+                displayError(error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Afficher les résultats
+        function displayResults(data, title) {
+            if (!data || data.length === 0) {
+                document.getElementById('resultsContainer').innerHTML = 
+                    '<p style="padding: 20px; text-align: center; color: #7f8c8d;">Aucun résultat trouvé.</p>';
+                document.getElementById('resultInfo').textContent = '0 lignes';
+                return;
+            }
+
+            const headers = Object.keys(data[0]);
+            let html = '<table class="results-table"><thead><tr>';
+            
+            headers.forEach(header => {
+                html += `<th>${header}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            
+            data.forEach(row => {
+                html += '<tr>';
+                headers.forEach(header => {
+                    html += `<td>${row[header] !== null ? row[header] : ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            
+            document.getElementById('resultsContainer').innerHTML = html;
+            document.getElementById('resultInfo').textContent = `${data.length} ligne(s) - ${title}`;
+        }
+
+        function displayStructure(data, title) {
+            if (!data || data.length === 0) {
+                document.getElementById('resultsContainer').innerHTML = 
+                    '<p style="padding: 20px; text-align: center; color: #7f8c8d;">Aucun résultat trouvé.</p>';
+                document.getElementById('structureInfo').textContent = '0 lignes';
+                return;
+            }
+
+            const headers = Object.keys(data[0]);
+            let html = '<table class="structure-table"><thead><tr>';
+            
+            headers.forEach(header => {
+                html += `<th>${header}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+            
+            data.forEach(row => {
+                html += '<tr>';
+                headers.forEach(header => {
+                    html += `<td>${row[header] !== null ? row[header] : ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+            
+            document.getElementById('structureContainer').innerHTML = html;
+            //document.getElementById('structureInfo').textContent = `${data.length} ligne(s) - ${title}`;
+            document.getElementById('structureSection').classList.remove('masque');
+            document.getElementById('structureSection').classList.add('visible');
+        }
+
+        // Afficher une erreur
+        function displayError(message) {
+            document.getElementById('resultsContainer').innerHTML = 
+                `<div class="error">❌ Erreur SQL:\n${message}</div>`;
+            document.getElementById('resultInfo').textContent = 'Erreur';
+        }
+
+        // Afficher un message de succès
+        function displaySuccess(message) {
+            document.getElementById('resultsContainer').innerHTML = 
+                `<div class="success">${message}</div>`;
+            document.getElementById('resultInfo').textContent = 'Succès';
+        }
+
+        // Afficher/masquer le chargement
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        // Effacer la requête
+        function clearQuery() {
+            document.getElementById('sqlQuery').value = '';
+        }
+
+        // Formater la requête
+        function formatQuery() {
+            const query = document.getElementById('sqlQuery').value;
+            const formatted = query
+                .replace(/\bcreate\b/gi, 'CREATE')
+                .replace(/\bdrop\b/gi, 'DROP')
+                .replace(/\balter\b/gi, 'ALTER')
+                .replace(/\badd\b/gi, 'ADD')
+                .replace(/\bmodify\b/gi, 'MODIFY')
+                .replace(/\bcolumn\b/gi, 'COLUMN')
+                .replace(/\bconstraint\b/gi, 'CONSTRAINT')
+                .replace(/\btable\b/gi, 'TABLE')
+                .replace(/\bprimary\b/gi, 'PRIMARY')
+                .replace(/\bkey\b/gi, 'KEY')
+                .replace(/\bforeign\b/gi, 'FOREIGN')
+                .replace(/\blike\b/gi, 'LIKE')
+                .replace(/\bas\b/gi, 'AS')
+                .replace(/\bbetween\b/gi, 'BETWEEN')
+                .replace(/\bselect\b/gi, 'SELECT')
+                .replace(/\bfrom\b/gi, 'FROM')
+                .replace(/\bwhere\b/gi, 'WHERE')
+                .replace(/\bhaving\b/gi, 'HAVING')
+                .replace(/\binsert\b/gi, 'INSERT')
+                .replace(/\binto\b/gi, 'INTO')
+                .replace(/\bvalues\b/gi, 'VALUES')
+                .replace(/\bupdate\b/gi, 'UPDATE')
+                .replace(/\bset\b/gi, 'SET')
+                .replace(/\bdelete\b/gi, 'DELETE')
+                .replace(/\band\b/gi, 'AND')
+                .replace(/\bor\b/gi, 'OR')
+                .replace(/\bnot\b/gi, 'NOT')
+                .replace(/\bnull\b/gi, 'NULL')
+                .replace(/\bdefault\b/gi, 'DEFAULT')
+                .replace(/\benum\b/gi, 'ENUM')
+                .replace(/\bcheck\b/gi, 'CHECK')
+                .replace(/\breferences\b/gi, 'REFERENCES')
+                .replace(/\border by\b/gi, 'ORDER BY')
+                .replace(/\bgroup by\b/gi, 'GROUP BY')
+                .replace(/\blimit\b/gi, 'LIMIT')
+                .replace(/\bunique\b/gi, 'UNIQUE')
+                .replace(/\bjoin\b/gi, 'JOIN')
+                .replace(/\bon\b/gi, 'ON')
+                .replace(/\binner join\b/gi, 'INNER JOIN')
+                .replace(/\bleft join\b/gi, 'LEFT JOIN')
+                .replace(/\bright join\b/gi, 'RIGHT JOIN')
+                .replace(/\bnow\s*\(\b/gi, 'NOW(')
+                .replace(/\bdesc\b/gi, 'DESC')
+                .replace(/\basc\b/gi, 'ASC')
+
+                .replace(/count\s*\(/gi, 'COUNT(')
+                .replace(/\bmax\s*\(\b/gi, 'MAX(')
+                .replace(/\bmin\s*\(\b/gi, 'MIN(')
+                .replace(/\bavg\s*\(\b/gi, 'AVG(')
+                .replace(/\bsum\s*\(\b/gi, 'SUM(')
+                .replace(/\bconcat\s*\(\b/gi, 'CONCAT(')
+                .replace(/\byear\s*\(\b/gi, 'YEAR(')
+                .replace(/\bmonth\s*\(\b/gi, 'MONTH(')
+                .replace(/\bday\s*\(\b/gi, 'DAY(')
+                .replace(/\bcoalesce\s*\(\b/gi, 'COALESCE(')
+                .replace(/\bisnull\s*\(\b/gi, 'ISNULL(')
+                .replace(/\bround\s*\(\b/gi, 'ROUND(')
+                .replace(/\bupper\s*\(\b/gi, 'UPPER(')
+                .replace(/\blower\s*\(\b/gi, 'LOWER(')
+                ;
+            
+            document.getElementById('sqlQuery').value = formatted;
+        }
+
+                        
+
+        // Afficher l'aide
+        function showHelp() {
+            alert(`🔍 AIDE SQL - Rappels syntaxiques :
+
+📖 CONSULTATION (SELECT) :
+• SELECT * FROM table_name;
+• SELECT colonne1, colonne2 FROM table_name WHERE condition;
+• SELECT * FROM table_name ORDER BY colonne DESC LIMIT 5;
+
+🔗 JOINTURES :
+• SELECT e.nom, c.nom FROM etudiants e JOIN notes n ON e.id = n.etudiant_id JOIN cours c ON n.cours_id = c.id;
+
+➕ INSERTION (INSERT) :
+• INSERT INTO table_name (col1, col2) VALUES ('val1', 'val2');
+
+✏️ MODIFICATION (UPDATE) :
+• UPDATE table_name SET colonne = 'nouvelle_valeur' WHERE condition;
+
+🗑️ SUPPRESSION (DELETE) :
+• DELETE FROM table_name WHERE condition;
+
+🏗️ STRUCTURE :
+• CREATE TABLE nom (id INT PRIMARY KEY, nom VARCHAR(50));
+• ALTER TABLE nom ADD COLUMN email VARCHAR(100);
+• DROP TABLE nom;
+
+⚠️ ATTENTION : Ces requêtes sont exécutées sur une vraie base de données !`);
+        }
+
+        // Initialisation au chargement de la page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadTables();
+        });
+    </script>
+</body>
+</html>
