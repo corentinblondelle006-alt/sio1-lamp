@@ -16,6 +16,8 @@ RUN apt-get -y update  \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Dépendances PHP essentielles
     zlib1g-dev libzip-dev libicu-dev libonig-dev libcurl4-openssl-dev \
+    # Dépendances pour les images (WordPress)
+    libjpeg-dev libpng-dev libfreetype6-dev \
     # Outils dev essentiels
     git curl nano \
     # BDD 
@@ -29,9 +31,9 @@ RUN pecl install xdebug \
     && touch /var/log/xdebug/xdebug.log \
     && chmod 666 /var/log/xdebug/xdebug.log
   
-# Other PHP8 Extensions
-RUN docker-php-ext-install pdo_mysql 
-RUN docker-php-ext-install zip mbstring
+# Other PHP8 Extensions (including mysqli for WordPress)
+RUN docker-php-ext-install pdo_mysql mysqli
+RUN docker-php-ext-install zip mbstring gd intl curl
 
 
 # Insure an SSL directory exists
